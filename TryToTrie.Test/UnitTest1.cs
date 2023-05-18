@@ -8,8 +8,18 @@ namespace TryToTrie.Tests
         public void Test1()
         {
             var t = Trie.Build(testDict);
-            Assert.That(t.Get("ted"), Is.EqualTo(4));
-            Assert.That(t.Get("A"), Is.EqualTo(15));
+            Assert.Multiple(() =>
+            {
+                Assert.That(t.Get("ted"), Is.EqualTo(4));
+                Assert.That(t.Get("A"), Is.EqualTo(15));
+            });
+        }
+
+        [Test]
+        public void Test2()
+        {
+            var n = Trie.Nodify(testDict);
+            Console.WriteLine(n);
         }
 
         private readonly IReadOnlyDictionary<string, int> testDict = new Dictionary<string, int>
