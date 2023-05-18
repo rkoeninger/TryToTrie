@@ -29,6 +29,8 @@ namespace TryToTrie.Tests
             { "ted", 4 },
             { "ten", 12 },
             { "A", 15 },
+            { "Ali", 2 },
+            { "Alien", 21 },
             { "i", 11 },
             { "in", 5 },
             { "inn", 9 }
