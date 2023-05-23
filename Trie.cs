@@ -50,13 +50,45 @@ namespace TryToTrie
                 new Type[] { typeof(string) });
             methodBuilder.SetCustomAttribute(Generated);
             var il = methodBuilder.GetILGenerator();
-            IfElseChain(
-                il,
-                d.OrderBy(kv => kv.Key.Length)
-                    .Select(kv => Clause(_ => EqualsStringLiteral(il, kv.Key), _ => ReturnInt(il, kv.Value))),
-                ThrowKeyNotFoundException);
+            var root = Nodify(d);
+            var remainingKey = il.DeclareLocal(typeof(string));
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Stloc, remainingKey);
+            BuildNode(il, remainingKey, root);
             var newType = typeBuilder.CreateType() ?? throw new Exception("no type created");
             return Activator.CreateInstance(newType) as ITrie<int> ?? throw new Exception("no instance created");
+        }
+
+        private static void BuildNode(ILGenerator il, LocalBuilder remainingKey, Node node)
+        {
+            if (node.HasValue)
+            {
+                IfElse(
+                    il,
+                    _ => IsEmptyString(il, remainingKey),
+                    _ => ReturnInt(il, node.Value),
+                    _ => BuildChildren(il, remainingKey, node.Children));
+            }
+            else
+            {
+                BuildChildren(il, remainingKey, node.Children);
+            }
+        }
+
+        private static void BuildChildren(ILGenerator il, LocalBuilder remainingKey, List<Node> children)
+        {
+            IfElseChain(
+                il,
+                children.OrderBy(n => n.Prefix.Length)
+                    .Select(n =>
+                        Clause(
+                            _ => StartsWithStringLiteral(il, remainingKey, n.Prefix),
+                            _ =>
+                            {
+                                RemovePrefix(il, remainingKey, n.Prefix);
+                                BuildNode(il, remainingKey, n);
+                            })),
+                ThrowKeyNotFoundException);
         }
 
         private static (Action<ILGenerator>, Action<ILGenerator>) Clause(
@@ -94,16 +126,39 @@ namespace TryToTrie
             ifFalse(il);
         }
 
-        private static void EqualsStringLiteral(ILGenerator il, string key)
+        private static void IsEmptyString(ILGenerator il, LocalBuilder remainingKey)
         {
-            il.Emit(OpCodes.Ldarg_1);
-            il.Emit(OpCodes.Ldstr, key);
-            var stringEqualsMethod = typeof(string).GetMethod(
-                "Equals",
-                BindingFlags.Public | BindingFlags.Static,
-                new Type[] { typeof(string), typeof(string) })
-                ?? throw new Exception("no string.Equals method");
-            il.Emit(stringEqualsMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, stringEqualsMethod);
+            var lengthMethod = typeof(string).GetProperty("Length")?.GetGetMethod()
+                ?? throw new Exception("no string.Length property");
+            il.Emit(OpCodes.Ldloc, remainingKey);
+            il.Emit(lengthMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, lengthMethod);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ceq);
+        }
+
+        private static void StartsWithStringLiteral(ILGenerator il, LocalBuilder remainingKey, string prefix)
+        {
+            var startsWithMethod = typeof(string).GetMethod(
+                "StartsWith",
+                BindingFlags.Public | BindingFlags.Instance,
+                new Type[] { typeof(string) })
+                ?? throw new Exception("no string.StartsWith method");
+            il.Emit(OpCodes.Ldloc, remainingKey);
+            il.Emit(OpCodes.Ldstr, prefix);
+            il.Emit(startsWithMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, startsWithMethod);
+        }
+
+        private static void RemovePrefix(ILGenerator il, LocalBuilder remainingKey, string prefix)
+        {
+            var substringMethod = typeof(string).GetMethod(
+                "Substring",
+                BindingFlags.Public | BindingFlags.Instance,
+                new Type[] { typeof(int) })
+                ?? throw new Exception("no string.Substring method");
+            il.Emit(OpCodes.Ldloc, remainingKey);
+            il.Emit(OpCodes.Ldc_I4, prefix.Length);
+            il.Emit(substringMethod.IsVirtual ? OpCodes.Callvirt : OpCodes.Call, substringMethod);
+            il.Emit(OpCodes.Stloc, remainingKey);
         }
 
         private static void ReturnInt(ILGenerator il, int value)
@@ -114,8 +169,8 @@ namespace TryToTrie
 
         private static void ThrowKeyNotFoundException(ILGenerator il)
         {
-            il.Emit(OpCodes.Ldarg_1);
             var exceptionCtor = typeof(KeyNotFoundException).GetConstructor(new Type[] { typeof(string) });
+            il.Emit(OpCodes.Ldarg_1);
             il.Emit(OpCodes.Newobj, exceptionCtor ?? throw new Exception("no ThrowKeyNotFoundException(string) constructor"));
             il.Emit(OpCodes.Throw);
         }
